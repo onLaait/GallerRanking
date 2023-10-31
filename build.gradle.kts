@@ -11,9 +11,8 @@ repositories {
 }
 
 dependencies {
-    implementation("be.zvz:KotlinInside:1.15.0")
+    implementation("be.zvz:KotlinInside:1.16.1")
     implementation("org.slf4j:slf4j-nop:2.0.9")
-    implementation("com.squareup.okhttp3:okhttp:5.0.0-alpha.11")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3")
 }
 
