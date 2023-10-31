@@ -11,6 +11,7 @@ import be.zvz.kotlininside.session.user.Anonymous
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import java.io.File
+import java.text.DecimalFormat
 import kotlin.math.max
 import kotlin.math.min
 
@@ -19,7 +20,7 @@ val users = mutableMapOf<String, UserData>()
 fun main() {
     Thread.setDefaultUncaughtExceptionHandler(DefaultExceptionHandler)
 
-    val coroutineCount = 50
+    val nCoroutines = 50
 
     println("클라이언트 생성 중")
     KotlinInside.createInstance(
@@ -57,7 +58,7 @@ fun main() {
             print("끝 글 ID: ")
             inputId2 = readln().trim().toInt()
             break
-        } catch (e: Exception) {
+        } catch (_: Exception) {
         }
     }
     val startId = min(inputId1, inputId2)
@@ -69,7 +70,7 @@ fun main() {
     var success = 0
     var deleted = 0
     runBlocking {
-        repeat(coroutineCount) {
+        repeat(nCoroutines) {
             launch {
                 while (ids.isNotEmpty()) {
                     val articleId = ids.first()
@@ -164,6 +165,8 @@ fun main() {
         "https://gall.dcinside.com/$gall/%s"
     }
 
+    val decimalFormat = DecimalFormat("0.0")
+
     repeat(4) { r ->
         var i = 0
         var top = 0
@@ -191,10 +194,7 @@ fun main() {
                         formatUser(it.value.name, it.key),
                         it.value.comment,
                         "<span style=\"font-size:8pt;\">${
-                            String.format(
-                                " % .1f",
-                                it.value.commentDCCon.toDouble() / it.value.comment * 100
-                            )
+                            decimalFormat.format(it.value.commentDCCon.toDouble() / it.value.comment * 100)
                         }</span>"
                     )
                     if (i == 100) break
