@@ -1,4 +1,4 @@
-package com.github.onlaait
+package com.github.onlaait.gallerranking
 
 import kotlin.system.exitProcess
 

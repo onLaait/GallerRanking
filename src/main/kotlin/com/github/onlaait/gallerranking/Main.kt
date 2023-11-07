@@ -1,4 +1,4 @@
-package com.github.onlaait
+package com.github.onlaait.gallerranking
 
 import be.zvz.kotlininside.KotlinInside
 import be.zvz.kotlininside.api.article.ArticleList
@@ -23,10 +23,7 @@ fun main() {
     val nCoroutines = 50
 
     println("클라이언트 생성 중")
-    KotlinInside.createInstance(
-        Anonymous("ㅇㅇ", "1234"),
-        DefaultHttpClient()
-    )
+    KotlinInside.createInstance(Anonymous("ㅇㅇ", "1234"), DefaultHttpClient())
 
     var gall: String
     var gallInfo: ArticleList.GallInfo
