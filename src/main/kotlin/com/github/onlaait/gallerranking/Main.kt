@@ -10,8 +10,10 @@ import be.zvz.kotlininside.http.DefaultHttpClient
 import be.zvz.kotlininside.session.user.Anonymous
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
-import java.io.File
+import org.apache.commons.text.StringEscapeUtils.escapeHtml4
 import java.text.DecimalFormat
+import kotlin.io.path.Path
+import kotlin.io.path.bufferedWriter
 import kotlin.math.max
 import kotlin.math.min
 
@@ -20,7 +22,7 @@ val users = mutableMapOf<String, UserData>()
 fun main() {
     Thread.setDefaultUncaughtExceptionHandler(DefaultExceptionHandler)
 
-    val nCoroutines = 50
+    val nCoroutines = 5
 
     println("클라이언트 생성 중")
     KotlinInside.createInstance(Anonymous("ㅇㅇ", "1234"), DefaultHttpClient())
@@ -41,9 +43,12 @@ fun main() {
         break
     }
 
-    var gallType = ""
-    if (gallInfo.isMinor) gallType = "마이너 "
-    if (gallInfo.isMini) gallType = "미니 "
+    val gallType =
+        when {
+            gallInfo.isMinor -> "마이너 "
+            gallInfo.isMini -> "미니 "
+            else -> ""
+        }
     println("${gallInfo.title} ${gallType}갤러리")
 
     var inputId1: Int
@@ -77,11 +82,10 @@ fun main() {
                     while (true) {
                         try {
                             articleRead.requestAsync().await()
-                        } catch (e: Exception) {
+                            break
+                        } catch (_: Exception) {
                             println("$articleId 재시도")
-                            continue
                         }
-                        break
                     }
                     val viewInfo = articleRead.getViewInfoAsync().await()
                     if (viewInfo.identifier == 0) {
@@ -92,19 +96,19 @@ fun main() {
                     }
                     val viewMain = articleRead.getViewMainAsync().await()
                     if (viewInfo.userId.isNotBlank()) { // 글쓴이
-                        users.putIfAbsent(viewInfo.userId, UserData())
-                        users[viewInfo.userId]!!.run {
+                        users.getOrPut(viewInfo.userId) { UserData() }.run {
                             name = viewInfo.name
-                            article++
-                            upVote += viewMain.upvoteMember
-                            downVote += viewMain.downvote
+                            articles++
+                            upvotes += viewMain.upvoteMember
+                            downvotes += viewMain.downvote
                             if (viewMain.upvoteMember > 0 || viewMain.downvote > 0) {
-                                articles += Article(
-                                    viewInfo.identifier,
-                                    viewInfo.subject,
-                                    if (viewMain.upvoteMember > 0) viewMain.upvoteMember * 1000000 + viewMain.upvote * 1000 + viewInfo.totalComment else 0,
-                                    if (viewMain.downvote > 0) viewMain.downvote * 1000 + viewInfo.totalComment else 0
-                                )
+                                articleList +=
+                                    Article(
+                                        viewInfo.identifier,
+                                        viewInfo.subject,
+                                        if (viewMain.upvoteMember > 0) viewMain.upvoteMember * 500 + (viewMain.upvote - viewMain.upvoteMember) * 50 + viewInfo.totalComment else 0,
+                                        if (viewMain.downvote > 0) viewMain.downvote * 100 + viewInfo.totalComment else 0
+                                    )
                             }
 
                         }
@@ -118,19 +122,17 @@ fun main() {
                             while (true) {
                                 try {
                                     commentReadRes = commentRead.getAsync().await()
-                                } catch (e: Exception) {
+                                    break
+                                } catch (_: Exception) {
                                     println("$articleId 댓글$page 재시도")
-                                    continue
                                 }
-                                break
                             }
                             for (comment in commentReadRes.commentList) {
                                 if (comment.userId.isBlank()) continue
-                                users.putIfAbsent(comment.userId, UserData())
-                                users[comment.userId]!!.let {
+                                users.getOrPut(comment.userId) { UserData() }.let {
                                     it.name = comment.name
-                                    it.comment++
-                                    if (comment.content is DCConComment) it.commentDCCon++
+                                    it.comments++
+                                    if (comment.content is DCConComment) it.commentsCon++
                                 }
                             }
                             if (commentReadRes.rePage == commentReadRes.totalPage) break
@@ -145,22 +147,22 @@ fun main() {
     }
 
     val max = endId - startId + 1
-
     val error = max - success - deleted
     println("$max 중 $count 계산, $success 성공, $deleted 삭제됨, $error${if (error != 0) ids else ""} 오류")
+
     println("데이터 정리 중...")
 
     val result = mutableListOf<String>()
     result += "<p><span style=\"font-size:18pt;\"><b><i>${gallInfo.title} 갤러리 갤창랭킹</i></b><br></span><span style=\"font-size:36pt;\"><br></span></p>"
     result += "<p><span style=\"font-size:10pt;\">총 게시글 수: $success <span style=\"color: rgb(166, 166, 166);\">($startId-$endId)</span><br></span><span style=\"font-size:18pt;\"><br></span></p>"
 
-    val articleUrl = if (gallInfo.isMinor) {
-        "https://gall.dcinside.com/m/$gall/%s"
-    } else if (gallInfo.isMini) {
-        "https://gall.dcinside.com/mini/$gall/%s"
-    } else {
-        "https://gall.dcinside.com/$gall/%s"
-    }
+    val articleUrl =
+        when {
+            gallInfo.isMinor -> "https://gall.dcinside.com/m/$gall/%s"
+            gallInfo.isMini -> "https://gall.dcinside.com/mini/$gall/%s"
+            else -> "https://gall.dcinside.com/$gall/%s"
+        }
+
 
     val decimalFormat = DecimalFormat("0.0")
 
@@ -170,32 +172,30 @@ fun main() {
         var lastVal = 0
         val rank = mutableListOf<List<Any>>()
         when (r) {
-            0 -> {
-                for (it in users.filterValues { it.article >= 1 }.entries.sortedByDescending { it.value.article }) {
+            0 -> { // 게시글 랭킹
+                for (it in users.filterValues { it.articles >= 1 }.entries.sortedByDescending { it.value.articles }.take(100)) {
                     i++
-                    if (it.value.article != lastVal) top = i
-                    rank += listOf(top, formatUser(it.value.name, it.key), it.value.article)
-                    if (i == 100) break
-                    lastVal = it.value.article
+                    if (it.value.articles != lastVal) top = i
+                    rank += listOf(top, formatUser(it.value.name, it.key), it.value.articles)
+                    lastVal = it.value.articles
                 }
                 result += makeHtmlTable("게시글 랭킹", listOf("게시글 수"), rank)
                 result += "<span style=\"font-size:36pt;\"><br><br></span>"
             }
 
-            1 -> {
-                for (it in users.filterValues { it.comment >= 1 }.entries.sortedByDescending { it.value.comment }) {
+            1 -> { // 댓글 랭킹
+                for (it in users.filterValues { it.comments >= 1 }.entries.sortedByDescending { it.value.comments }.take(100)) {
                     i++
-                    if (it.value.comment != lastVal) top = i
+                    if (it.value.comments != lastVal) top = i
                     rank += listOf(
                         top,
                         formatUser(it.value.name, it.key),
-                        it.value.comment,
+                        it.value.comments,
                         "<span style=\"font-size:8pt;\">${
-                            decimalFormat.format(it.value.commentDCCon.toDouble() / it.value.comment * 100)
+                            decimalFormat.format(it.value.commentsCon.toDouble() / it.value.comments * 100)
                         }</span>"
                     )
-                    if (i == 100) break
-                    lastVal = it.value.comment
+                    lastVal = it.value.comments
                 }
                 result += makeHtmlTable(
                     "댓글 랭킹",
@@ -205,20 +205,19 @@ fun main() {
                 result += "<span style=\"font-size:36pt;\"><br><br></span>"
             }
 
-            2 -> {
-                for (it in users.filterValues { it.upVote >= 5 }.entries.sortedByDescending { it.value.upVote }) {
+            2 -> { // 개추 랭킹
+                for (it in users.filterValues { it.upvotes >= 10 }.entries.sortedByDescending { it.value.upvotes }.take(50)) {
                     i++
-                    if (it.value.upVote != lastVal) top = i
+                    if (it.value.upvotes != lastVal) top = i
                     rank += listOf(
                         top,
                         formatUser(it.value.name, it.key),
-                        it.value.upVote,
-                        it.value.articles.maxBy { article -> article.up }.run {
+                        it.value.upvotes,
+                        it.value.articleList.maxBy { it.up }.run {
                             "<a href=\"${String.format(articleUrl, id)}\" style=\"color:#006DD7;\"><span style=\"font-size:8pt;\">$subject</span></a>"
                         }
                     )
-                    if (i == 50) break
-                    lastVal = it.value.upVote
+                    lastVal = it.value.upvotes
                 }
                 result += makeHtmlTable(
                     "개추 랭킹",
@@ -228,20 +227,19 @@ fun main() {
                 result += "<span style=\"font-size:36pt;\"><br><br></span>"
             }
 
-            3 -> {
-                for (it in users.filterValues { it.downVote >= 5 }.entries.sortedByDescending { it.value.downVote }) {
+            3 -> { // 비추 랭킹
+                for (it in users.filterValues { it.downvotes >= 10 }.entries.sortedByDescending { it.value.downvotes }.take(50)) {
                     i++
-                    if (it.value.downVote != lastVal) top = i
+                    if (it.value.downvotes != lastVal) top = i
                     rank += listOf(
                         top,
                         formatUser(it.value.name, it.key),
-                        it.value.downVote,
-                        it.value.articles.maxBy { article -> article.down }.run {
+                        it.value.downvotes,
+                        it.value.articleList.maxBy { it.down }.run {
                             "<a href=\"${String.format(articleUrl, id)}\" style=\"color:#006DD7;\"><span style=\"font-size:8pt;\">$subject</span></a>"
                         }
                     )
-                    if (i == 50) break
-                    lastVal = it.value.downVote
+                    lastVal = it.value.downvotes
                 }
                 result += makeHtmlTable(
                     "비추 랭킹",
@@ -252,11 +250,10 @@ fun main() {
             }
         }
     }
-    File("result_${gall}_${startId}-${endId}.txt").bufferedWriter().use { bw ->
-        for ((i, str) in result.withIndex()) {
-            bw.write(str)
-            if (i == result.lastIndex) break
-            bw.newLine()
+    Path("result_${gall}_${startId}-${endId}.txt").bufferedWriter().use { w ->
+        result.forEach {
+            w.write(it)
+            w.newLine()
         }
     }
     println("완료")
@@ -264,8 +261,8 @@ fun main() {
 
 fun formatUser(name: String, id: String) = "$name<span style=\"color:rgb(166,166,166);\">($id)</span>"
 
-fun makeHtmlTable(title: String, index: List<String>, contents: MutableList<List<Any>>): String {
-    val fullIndex = listOf("순위", "닉네임(아이디)") + index
+fun makeHtmlTable(title: String, extraIndex: List<String>, contents: MutableList<List<Any>>): String {
+    val index = listOf("순위", "닉네임(아이디)") + extraIndex
     for (i in 0..contents.lastIndex) { // 1~3등 색 입히기
         if (contents[i][0] !in 1..3) break
         val list = contents[i].toMutableList()
@@ -278,20 +275,21 @@ fun makeHtmlTable(title: String, index: List<String>, contents: MutableList<List
         contents[i] = list
     }
     return "<table width=\"100%\" style=\"border-collapse:collapse;\" border=\"1\"><tbody>" +
-            (listOf("<td colspan=\"${fullIndex.size}\" style=\"height:46px;\"><b><span style=\"font-size:18pt;\">$title</span></b></td>") +
-                    (listOf(fullIndex.map { "<b>$it</b>" }) + contents).map { it.joinToString("") { e -> "<td>$e</td>" } }
-                    ).joinToString("") { "<tr align=\"center\">$it</tr>" } +
+            (
+                listOf("<td colspan=\"${index.size}\" style=\"height:46px;\"><b><span style=\"font-size:18pt;\">${escapeHtml4(title)}</span></b></td>") +
+                (listOf(index.map { "<b>$it</b>" }) + contents).map { it.joinToString("") { e -> "<td>$e</td>" } }
+            ).joinToString("") { "<tr align=\"center\">$it</tr>" } +
             "</tbody></table>"
 }
 
 data class UserData(
     var name: String = "",
-    var article: Int = 0,
-    var comment: Int = 0,
-    var commentDCCon: Int = 0,
-    var upVote: Int = 0,
-    var downVote: Int = 0,
-    val articles: MutableList<Article> = mutableListOf()
+    var articles: Int = 0,
+    var comments: Int = 0,
+    var commentsCon: Int = 0,
+    var upvotes: Int = 0,
+    var downvotes: Int = 0,
+    val articleList: MutableList<Article> = mutableListOf()
 )
 
 data class Article(val id: Int, val subject: String, val up: Int, val down: Int)
